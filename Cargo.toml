@@ -1,0 +1,23 @@
+[package]
+name = "anti-hash"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+num = "*"
+wasm-bindgen = "*"
+web-sys = { version = "*", features = [
+    "console",
+    "Document",
+    "Element",
+    "HtmlButtonElement",
+    "HtmlDivElement",
+    "HtmlInputElement",
+    "HtmlLabelElement",
+    "Event",
+    "Node",
+    "Window",
+] }
