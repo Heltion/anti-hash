@@ -1,8 +1,7 @@
-use num::BigInt;
 use wasm_bindgen::{closure::Closure, prelude::wasm_bindgen, JsCast, JsValue};
-use web_sys::{
-    Document, Element, HtmlButtonElement, HtmlDivElement, HtmlInputElement, HtmlLabelElement, Node,
-};
+use web_sys::{Document, Element, HtmlButtonElement, HtmlDivElement, HtmlInputElement, Node};
+
+use crate::backend::anti_hash;
 const N: usize = 8;
 
 #[allow(unused)]
@@ -20,10 +19,6 @@ fn element(local_name: &str) -> Element {
 
 fn input() -> HtmlInputElement {
     element("input").dyn_into().unwrap()
-}
-
-fn label() -> HtmlLabelElement {
-    element("label").dyn_into().unwrap()
 }
 
 fn button() -> HtmlButtonElement {
@@ -61,18 +56,6 @@ where
     }
 }
 impl WithType for HtmlInputElement {}
-
-trait WithFor
-where
-    Self: Into<HtmlLabelElement>,
-{
-    fn with_for(self, value: &str) -> HtmlLabelElement {
-        let label: HtmlLabelElement = self.into();
-        label.set_html_for(value);
-        label
-    }
-}
-impl WithFor for HtmlLabelElement {}
 
 trait WithId
 where
@@ -113,7 +96,6 @@ where
     }
 }
 impl WithTextContent for Element {}
-impl WithTextContent for HtmlLabelElement {}
 
 fn get_value(id: &str) -> String {
     document()
@@ -153,11 +135,14 @@ fn update_input() {
     }
 }
 
-fn get_big_int(id: &str) -> Result<BigInt, String> {
+fn get_i64(id: &str) -> Result<i64, String> {
     let value = get_value(id);
     match value.parse() {
         Ok(bi) => Ok(bi),
-        Err(_) => Err(format!("Error: [{}] should be an integer", id)),
+        Err(_) => Err(format!(
+            "Error: [{}] should be an unsigned 64-bit integer",
+            id
+        )),
     }
 }
 fn update_output() {
@@ -182,24 +167,24 @@ fn update_output() {
     };
     let mut modulo_base = Vec::new();
     for i in 0..number {
-        let modulo = match get_big_int(&format!("modulo_{}", i)) {
+        let modulo = match get_i64(&format!("modulo_{}", i)) {
             Ok(bi) => bi,
             Err(err) => {
                 outputs.set_text_content(Some(&err));
                 return;
             }
         };
-        let base = match get_big_int(&format!("base_{}", i)) {
+        let base = match get_i64(&format!("base_{}", i)) {
             Ok(bi) => bi,
             Err(err) => {
                 outputs.set_text_content(Some(&err));
                 return;
             }
         };
-        if base < BigInt::from(0) {
+        if base < 0 {
             outputs.set_text_content(Some(&format!(
-                "Error: [base_{}] should be non-negative.",
-                i
+                "Error: [base_{}] should be non-negative].",
+                i,
             )));
             return;
         }
@@ -210,15 +195,16 @@ fn update_output() {
             )));
             return;
         }
-        let binary: HtmlInputElement = document()
-            .get_element_by_id("binary")
-            .unwrap()
-            .dyn_into()
-            .unwrap();
-        let binary = binary.checked();
         modulo_base.push((modulo, base));
-        outputs.set_text_content(Some(&format!("{} {:?}", binary, modulo_base)));
     }
+    match anti_hash(modulo_base) {
+        Ok((s, t)) => {
+            outputs.set_text_content(Some(&(s + &t)));
+        }
+        Err(err) => {
+            outputs.set_text_content(Some(&err));
+        }
+    };
 }
 
 #[wasm_bindgen(start)]
@@ -235,14 +221,6 @@ fn main() {
             .with_atrribute("min", "1")
             .with_atrribute("max", &N.to_string())
             .into(),
-    ]))
-    .unwrap();
-    app.append_child(&div([
-        label()
-            .with_for("binary")
-            .with_text_content("binary string"),
-        input().with_type("checkbox").with_id("binary").into(),
-        element("span").with_text_content(" (The output consists of only 'a' and 'b' if checked.)"),
     ]))
     .unwrap();
     for i in 0..N {

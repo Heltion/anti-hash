@@ -6,8 +6,9 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+
 [dependencies]
-num = "*"
+bigdecimal = "*"
 wasm-bindgen = "*"
 web-sys = { version = "*", features = [
     "console",
@@ -16,7 +17,6 @@ web-sys = { version = "*", features = [
     "HtmlButtonElement",
     "HtmlDivElement",
     "HtmlInputElement",
-    "HtmlLabelElement",
     "Event",
     "Node",
     "Window",
