@@ -13,6 +13,7 @@ wasm-bindgen = "*"
 web-sys = { version = "*", features = [
     "console",
     "Document",
+    "DateTimeValue",
     "Element",
     "HtmlButtonElement",
     "HtmlDivElement",
