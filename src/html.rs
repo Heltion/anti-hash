@@ -187,7 +187,7 @@ fn get_inputs() -> Result<Parameters, String> {
     if delta >= BigDecimal::one() {
         return Err("[delta] should be strictly less than 1.".to_string());
     }
-    let eta = get_value_parsed("delta", "a number")?;
+    let eta = get_value_parsed("eta", "a number")?;
     if eta <= BigDecimal::from_f64(0.5).unwrap() {
         return Err("[eta] should be strictly greater than 0.5".to_string());
     }
@@ -222,6 +222,7 @@ fn run_anti_hash() {
         Ok(parameters) => parameters,
         Err(err) => {
             outputs.set_text_content(Some(&err));
+            generate.set_disabled(false);
             return;
         }
     };
@@ -231,7 +232,7 @@ fn run_anti_hash() {
         crate::anti_hash::AntiResult::NotFound(time, best) => {
             outputs
                 .append_child(
-                    &element("div").with_text_content(&format!("time consumend: {}s", time)),
+                    &element("div").with_text_content(&format!("time consumed: {}s", time)),
                 )
                 .unwrap();
             outputs
