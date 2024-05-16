@@ -7,8 +7,16 @@ use web_sys::{
 };
 
 use crate::anti_hash::{anti_hash, Parameters};
-const N: usize = 8;
-
+const N: usize = 4;
+const DEFAULT_MODULO: [&str; 4] = [
+    "998244353",
+    "1000000007",
+    "1000000009",
+    "1000000000000000003",
+];
+const DEFAULT_BASE: [&str; 4] = ["233", "27", "257", "114514"];
+const DEFAULT_LENGTH: &str = "30";
+const DEFAULT_PRECISION: &str = "10";
 #[allow(unused)]
 fn console_log(s: String) {
     web_sys::console::log_1(&JsValue::from_str(&s));
@@ -117,16 +125,12 @@ fn update_input() {
     for i in 0..N {
         let input = document()
             .get_element_by_id(&format!("input_{}", i))
+            .unwrap()
+            .dyn_into::<HtmlElement>()
             .unwrap();
         input
-            .set_attribute(
-                "style",
-                if i < number {
-                    "display: block"
-                } else {
-                    "display: none"
-                },
-            )
+            .style()
+            .set_property("display", if i < number { "block" } else { "none" })
             .unwrap();
     }
 }
@@ -188,8 +192,8 @@ fn get_inputs() -> Result<Parameters, String> {
         return Err("[eta] should be strictly greater than 0.5".to_string());
     }
     let precision = get_value_parsed("precision", "an unsigned 64-bit integer")?;
-    if precision > 100 {
-        return Err("[precision] should be equal to or less than 100".to_string());
+    if precision == 0 || precision > 100 {
+        return Err("[precision] should be between 1 and 100".to_string());
     }
     let timeout = get_value_parsed("timeout", "a number")?;
     if timeout <= 0. {
@@ -206,7 +210,13 @@ fn get_inputs() -> Result<Parameters, String> {
         timeout,
     })
 }
-fn update_output() {
+fn run_anti_hash() {
+    let generate = document()
+        .get_element_by_id("generate")
+        .unwrap()
+        .dyn_into::<HtmlButtonElement>()
+        .unwrap();
+    generate.set_disabled(true);
     let outputs = document().get_element_by_id("outputs").unwrap();
     let input = match get_inputs() {
         Ok(parameters) => parameters,
@@ -215,14 +225,8 @@ fn update_output() {
             return;
         }
     };
-    let generate = document()
-        .get_element_by_id("generate")
-        .unwrap()
-        .dyn_into::<HtmlButtonElement>()
-        .unwrap();
-    generate.set_disabled(true);
-    outputs.set_text_content(None);
     let result = anti_hash(input);
+    outputs.set_text_content(None);
     match result {
         crate::anti_hash::AntiResult::NotFound(time, best) => {
             outputs
@@ -272,17 +276,39 @@ fn update_output() {
     }
     generate.set_disabled(false);
 }
+fn update_output() {
+    let outputs = document().get_element_by_id("outputs").unwrap();
+    outputs.set_text_content(Some("reducing..."));
+}
 
 #[wasm_bindgen(start)]
 fn main() {
     let app = document().get_element_by_id("app").unwrap();
     app.append_child(&element("h1").with_text_content("Anti-hash Test Generator"))
         .unwrap();
+    let a = element("a").with_atrribute(
+        "href",
+        &format!(
+            "https://github.com/{}/{}",
+            env!("CARGO_PKG_AUTHORS"),
+            env!("CARGO_PKG_NAME")
+        ),
+    );
+    a.append_child(&element("img").with_atrribute(
+        "src",
+        &format!(
+            "https://img.shields.io/github/stars/{}/{}",
+            env!("CARGO_PKG_AUTHORS"),
+            env!("CARGO_PKG_NAME")
+        ),
+    ))
+    .unwrap();
+    app.append_child(&a).unwrap();
     app.append_child(&div([
         element("span").with_text_content("length: "),
         input()
             .with_type("number")
-            .with_default_value("20")
+            .with_default_value(DEFAULT_LENGTH)
             .with_id("length")
             .into(),
     ]))
@@ -304,13 +330,13 @@ fn main() {
                 element("span").with_text_content(&format!("modulo_{}: ", i)),
                 input()
                     .with_type("number")
-                    .with_default_value(&(998244353 + i).to_string())
+                    .with_default_value(DEFAULT_MODULO[i])
                     .with_id(&format!("modulo_{}", i))
                     .into(),
                 element("span").with_text_content(&format!(" base_{}: ", i)),
                 input()
                     .with_type("number")
-                    .with_default_value(&(233 + i).to_string())
+                    .with_default_value(DEFAULT_BASE[i])
                     .with_id(&format!("base_{}", i))
                     .into(),
             ])
@@ -352,7 +378,7 @@ fn main() {
         element("span").with_text_content("precision: "),
         input()
             .with_type("number")
-            .with_default_value("100")
+            .with_default_value(DEFAULT_PRECISION)
             .with_id("precision")
             .into(),
     ]))
@@ -377,7 +403,12 @@ fn main() {
     let generate = document().get_element_by_id("generate").unwrap();
     let closure = Closure::<dyn Fn()>::new(update_output);
     generate
-        .add_event_listener_with_callback("click", closure.as_ref().unchecked_ref())
+        .add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())
+        .unwrap();
+    closure.forget();
+    let closure = Closure::<dyn Fn()>::new(run_anti_hash);
+    generate
+        .add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())
         .unwrap();
     closure.forget();
 }

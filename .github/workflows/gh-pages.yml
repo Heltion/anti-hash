@@ -1,0 +1,21 @@
+name: gh-pages
+on: push
+jobs:
+  gh-pages:
+    runs-on: ubuntu-latest
+    permissions: 
+      contents: read
+      id-token: write
+      pages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+            toolchain: stable
+      - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - run: wasm-pack build --release --target web --out-dir docs/pkg
+      - run: mv index.html docs/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./docs
+      - uses: actions/deploy-pages@v4

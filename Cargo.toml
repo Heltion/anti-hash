@@ -1,5 +1,6 @@
 [package]
 name = "anti-hash"
+authors = ["Heltion"]
 version = "0.1.0"
 edition = "2021"
 
@@ -12,11 +13,13 @@ bigdecimal = "*"
 wasm-bindgen = "*"
 web-sys = { version = "*", features = [
     "console",
+    "CssStyleDeclaration",
     "Document",
     "DateTimeValue",
     "Element",
     "HtmlButtonElement",
     "HtmlDivElement",
+    "HtmlImageElement",
     "HtmlInputElement",
     "Event",
     "Node",

@@ -23,6 +23,7 @@ struct L2 {
     precision: u64,
     timeout: f64,
     start_time: f64,
+    n_: usize,
 }
 
 impl L2 {
@@ -32,6 +33,7 @@ impl L2 {
         eta: BigDecimal,
         precision: u64,
         timeout: f64,
+        n_: usize,
     ) -> Self {
         let n = b.len();
         let delta = (delta + 1) / 2;
@@ -47,6 +49,7 @@ impl L2 {
             precision,
             timeout,
             start_time,
+            n_,
         }
     }
     fn cfa(&mut self, i: usize) {
@@ -73,11 +76,11 @@ impl L2 {
         loop {
             self.cfa(k);
 
-            if self.mu[k].iter().take(k).map(|v| v.abs()).max().unwrap() <= self.eta {
+            if self.mu[k].iter().take(k).map(|v| v.abs()).max().unwrap() <= self.eta
+                || self.check_row(k)
+                || self.check_time_out()
+            {
                 break;
-            }
-            if self.check_time_out() {
-                return;
             }
             for i in (0..k).rev() {
                 let x = self.mu[k][i].round(0).into_bigint_and_exponent().0;
@@ -100,14 +103,14 @@ impl L2 {
         let n = self.b.len();
         while k < n {
             self.reduce_row(k);
+            if self.check_row(k) || self.check_time_out() {
+                return;
+            }
             let k_ = k;
             while k >= 1 && &self.delta * &self.r[k - 1][k - 1] > self.s[k_][k - 1] {
                 k -= 1
             }
             if k_ != k {
-                if self.check_time_out() {
-                    return;
-                }
                 for i in 0..k {
                     self.mu[k][i] = self.mu[k_][i].clone();
                     self.r[k][i] = self.r[k_][i].clone();
@@ -117,6 +120,28 @@ impl L2 {
             }
             k += 1;
         }
+    }
+    fn row_max(&self, i: usize) -> BigInt {
+        self.b[i][self.n_..]
+            .iter()
+            .map(|val| {
+                if val >= &BigInt::ZERO {
+                    val.clone()
+                } else {
+                    -val
+                }
+            })
+            .max()
+            .unwrap()
+    }
+    fn check_row(&self, i: usize) -> bool {
+        if self.b[i][..self.n_].iter().any(|val| val != &BigInt::ZERO) {
+            return false;
+        }
+        if self.row_max(i) >= BigInt::from_i32(SIGMA).unwrap() {
+            return false;
+        }
+        true
     }
     fn runtime(&self) -> f64 {
         Date::now() / 1000. - self.start_time
@@ -157,6 +182,28 @@ pub enum AntiResult {
 }
 
 fn check(a: &String, b: &String, modulo: Vec<BigInt>, base: Vec<BigInt>) -> bool {
+    let n = modulo.len();
+    let length = 0;
+    let a = a
+        .chars()
+        .map(|c| BigInt::from_u8(c as u8).unwrap())
+        .collect::<Vec<_>>();
+    let b = b
+        .chars()
+        .map(|c| BigInt::from_u8(c as u8).unwrap())
+        .collect::<Vec<_>>();
+    for i in 0..n {
+        let pow = powers(&base[i], &modulo[i], length);
+        let mut ha = BigInt::ZERO;
+        let mut hb = BigInt::ZERO;
+        for j in 0..length {
+            ha += &pow[j] * &a[j];
+            hb += &pow[j] * &b[j];
+        }
+        if ha != hb {
+            return false;
+        }
+    }
     true
 }
 
@@ -183,7 +230,7 @@ pub fn anti_hash(parameters: Parameters) -> AntiResult {
     for i in 0..length {
         b[i][n + i] = BigInt::one();
     }
-    let mut l2 = L2::new(b, delta, eta, precision, timeout);
+    let mut l2 = L2::new(b, delta, eta, precision, timeout, n);
     l2.reduce();
     let mut best = None;
     let mut best_vec = None;
@@ -214,6 +261,9 @@ pub fn anti_hash(parameters: Parameters) -> AntiResult {
                     a.push(('a' as u8 + (-diff) as u8) as char);
                     b.push('a');
                 }
+            }
+            if !check(&a, &b, modulo, base) {
+                return AntiResult::Unknown;
             }
             return AntiResult::Ok(l2.runtime(), a, b);
         }
