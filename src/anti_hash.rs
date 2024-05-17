@@ -171,6 +171,8 @@ pub struct Parameters {
     pub delta: BigDecimal,
     pub eta: BigDecimal,
     pub precision: u64,
+    pub palindrome: bool,
+
     pub timeout: f64,
 }
 
@@ -207,7 +209,7 @@ fn check(a: &String, b: &String, modulo: Vec<BigInt>, base: Vec<BigInt>) -> bool
     true
 }
 
-pub fn anti_hash(parameters: Parameters) -> AntiResult {
+pub fn anti_palindrome_hash(parameters: Parameters) -> AntiResult {
     let Parameters {
         length,
         modulo,
@@ -217,6 +219,100 @@ pub fn anti_hash(parameters: Parameters) -> AntiResult {
         eta,
         precision,
         timeout,
+        palindrome: _,
+    } = parameters;
+    if length == 1 {
+        return AntiResult::NotFound(0., None);
+    }
+    let n = modulo.len();
+    let mut b = vec![vec![BigInt::ZERO; length / 2 + n]; length / 2 + n];
+    for i in 0..n {
+        powers(&base[i], &modulo[i], length)
+            .into_iter()
+            .enumerate()
+            .for_each(|(j, val)| {
+                if j < length / 2 {
+                    b[j][i] += val * &lambda
+                } else if length - 1 - j < length / 2 {
+                    b[length - 1 - j][i] -= val * &lambda
+                }
+            });
+        b[length / 2 + i][i] = &modulo[i] * &lambda;
+    }
+    for i in 0..length / 2 {
+        b[i][n + i] = BigInt::one();
+    }
+    let mut l2 = L2::new(b, delta, eta, precision, timeout, n);
+    l2.reduce();
+    let mut best = None;
+    let mut best_vec = None;
+    for row in &l2.b {
+        if row[..n].iter().any(|val| val != &BigInt::ZERO) {
+            continue;
+        }
+        let cur = row[n..]
+            .iter()
+            .map(|val| {
+                if val >= &BigInt::ZERO {
+                    val.clone()
+                } else {
+                    -val
+                }
+            })
+            .max()
+            .unwrap();
+        if cur < BigInt::from_i32(SIGMA).unwrap() {
+            let mut a = String::new();
+            let mut b = String::new();
+            for i in 0..length / 2 {
+                let diff: i32 = row[n + i].clone().try_into().unwrap();
+                if diff >= 0 {
+                    a.push('a');
+                    b.push(('a' as u8 + diff as u8) as char);
+                } else {
+                    a.push(('a' as u8 + (-diff) as u8) as char);
+                    b.push('a');
+                }
+            }
+            let pa = a.clone().chars().into_iter().rev().collect::<String>();
+            let pb = b.clone().chars().into_iter().rev().collect::<String>();
+            if length % 2 == 1 {
+                a.push('a');
+                b.push('a');
+            }
+            a += &pb;
+            b += &pa;
+            if !check(&a, &b, modulo, base) {
+                return AntiResult::Unknown;
+            }
+            return AntiResult::Ok(l2.runtime(), a, b);
+        }
+        if best.is_none() || best.clone().unwrap() > cur {
+            best = Some(cur);
+            best_vec = Some(row[n..].iter().map(|val| val.clone()).collect());
+        }
+    }
+    if l2.check_time_out() {
+        return AntiResult::TimeOut(best_vec);
+    } else {
+        AntiResult::NotFound(l2.runtime(), best_vec)
+    }
+}
+
+pub fn anti_hash(parameters: Parameters) -> AntiResult {
+    if parameters.palindrome {
+        return anti_palindrome_hash(parameters);
+    }
+    let Parameters {
+        length,
+        modulo,
+        base,
+        lambda,
+        delta,
+        eta,
+        precision,
+        timeout,
+        palindrome: _,
     } = parameters;
     let n = modulo.len();
     let mut b = vec![vec![BigInt::ZERO; length + n]; length + n];

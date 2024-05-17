@@ -11,12 +11,13 @@ const N: usize = 4;
 const DEFAULT_MODULO: [&str; 4] = [
     "998244353",
     "1000000007",
-    "1000000009",
     "1000000000000000003",
+    "18446744073709551616",
 ];
 const DEFAULT_BASE: [&str; 4] = ["233", "27", "257", "114514"];
-const DEFAULT_LENGTH: &str = "30";
+const DEFAULT_LENGTH: &str = "20";
 const DEFAULT_PRECISION: &str = "10";
+const REVERSE_DESCRIPTION: [&str; 2] = ["h ≡ ∑ si q^i (mod p)", "h ≡ ∑ si q^(n-1-i) (mod p)"];
 #[allow(unused)]
 fn console_log(s: String) {
     web_sys::console::log_1(&JsValue::from_str(&s));
@@ -110,6 +111,17 @@ where
 }
 impl WithTextContent for Element {}
 
+fn display(id: &str, property: &str) {
+    document()
+        .get_element_by_id(id)
+        .unwrap()
+        .dyn_into::<HtmlElement>()
+        .unwrap()
+        .style()
+        .set_property("display", property)
+        .unwrap()
+}
+
 fn update_input() {
     let number: usize = match get_value("number").parse() {
         Ok(number) => {
@@ -123,15 +135,10 @@ fn update_input() {
         }
     };
     for i in 0..N {
-        let input = document()
-            .get_element_by_id(&format!("input_{}", i))
-            .unwrap()
-            .dyn_into::<HtmlElement>()
-            .unwrap();
-        input
-            .style()
-            .set_property("display", if i < number { "block" } else { "none" })
-            .unwrap();
+        display(
+            &format!("input_{}", i),
+            if i < number { "block" } else { "none" },
+        );
     }
 }
 
@@ -153,8 +160,8 @@ fn get_value_parsed<T: FromStr>(id: &str, td: &str) -> Result<T, String> {
 
 fn get_inputs() -> Result<Parameters, String> {
     let number: usize = get_value_parsed("number", "an unsigned 64-bit integer")?;
-    if number == 0 || number > 8 {
-        return Err("[number] should be between 1 and 8.".to_string());
+    if number == 0 || number > N {
+        return Err(format!("[number] should be between 1 and {}.", N));
     }
     let length = get_value_parsed("length", "an unsigned 64-bit integer")?;
     if length == 0 {
@@ -199,6 +206,12 @@ fn get_inputs() -> Result<Parameters, String> {
     if timeout <= 0. {
         return Err("[timeout] should be positive".to_string());
     }
+    let palindrome = document()
+        .get_element_by_id("palindrome")
+        .unwrap()
+        .dyn_into::<HtmlInputElement>()
+        .unwrap()
+        .checked();
     Ok(Parameters {
         length,
         modulo,
@@ -207,6 +220,7 @@ fn get_inputs() -> Result<Parameters, String> {
         delta,
         eta,
         precision,
+        palindrome,
         timeout,
     })
 }
@@ -217,69 +231,66 @@ fn run_anti_hash() {
         .dyn_into::<HtmlButtonElement>()
         .unwrap();
     generate.set_disabled(true);
-    let outputs = document().get_element_by_id("outputs").unwrap();
+    let log = document().get_element_by_id("log").unwrap();
     let input = match get_inputs() {
         Ok(parameters) => parameters,
         Err(err) => {
-            outputs.set_text_content(Some(&err));
+            log.set_text_content(Some(&err));
             generate.set_disabled(false);
             return;
         }
     };
     let result = anti_hash(input);
-    outputs.set_text_content(None);
+    log.set_text_content(None);
     match result {
         crate::anti_hash::AntiResult::NotFound(time, best) => {
-            outputs
-                .append_child(
-                    &element("div").with_text_content(&format!("time consumed: {}s", time)),
-                )
-                .unwrap();
-            outputs
-                .append_child(&element("div").with_text_content("Not found."))
+            log.append_child(
+                &element("div").with_text_content(&format!("time consumed: {}s", time)),
+            )
+            .unwrap();
+            log.append_child(&element("div").with_text_content("Not found."))
                 .unwrap();
             if let Some(best) = best {
-                outputs
-                    .append_child(&element("div").with_text_content(&format!(
-                        "The hashes of the following array are zeros {:?}",
-                        best
-                    )))
-                    .unwrap();
+                log.append_child(&element("div").with_text_content(&format!(
+                    "The hashes of the following array are zeros {:?}",
+                    best
+                )))
+                .unwrap();
             }
         }
         crate::anti_hash::AntiResult::TimeOut(best) => {
-            outputs.set_text_content(Some("Timeout."));
+            log.set_text_content(Some("Timeout."));
             if let Some(best) = best {
-                outputs
-                    .append_child(&element("div").with_text_content(&format!(
-                        "The hashes of the following array are zeros {:?}",
-                        best
-                    )))
-                    .unwrap();
+                log.append_child(&element("div").with_text_content(&format!(
+                    "The hashes of the following array are zeros {:?}",
+                    best
+                )))
+                .unwrap();
             }
         }
         crate::anti_hash::AntiResult::Ok(time, a, b) => {
-            outputs
-                .append_child(
-                    &element("div").with_text_content(&format!("time consumend: {}s", time)),
-                )
-                .unwrap();
-            outputs
-                .append_child(&element("div").with_text_content(&a))
-                .unwrap();
-            outputs
-                .append_child(&element("div").with_text_content(&b))
-                .unwrap();
+            log.append_child(
+                &element("div").with_text_content(&format!("time consumed: {}s", time)),
+            )
+            .unwrap();
+            let reverse_description = document().get_element_by_id("reverse_description").unwrap();
+            reverse_description.set_text_content(Some(REVERSE_DESCRIPTION[0]));
+            let string_a = document().get_element_by_id("string_a").unwrap();
+            string_a.set_text_content(Some(&a));
+            let string_b = document().get_element_by_id("string_b").unwrap();
+            string_b.set_text_content(Some(&b));
+            display("outputs", "block");
         }
         crate::anti_hash::AntiResult::Unknown => {
-            outputs.set_text_content(Some("There exist unknown bugs."))
+            log.set_text_content(Some("There exist unknown bugs."))
         }
     }
     generate.set_disabled(false);
 }
 fn update_output() {
-    let outputs = document().get_element_by_id("outputs").unwrap();
-    outputs.set_text_content(Some("reducing..."));
+    let log = document().get_element_by_id("log").unwrap();
+    log.set_text_content(Some("reducing..."));
+    display("outputs", "none");
 }
 
 #[wasm_bindgen(start)]
@@ -380,6 +391,8 @@ fn main() {
         input()
             .with_type("number")
             .with_default_value(DEFAULT_PRECISION)
+            .with_atrribute("min", "1")
+            .with_atrribute("max", "100")
             .with_id("precision")
             .into(),
     ]))
@@ -389,10 +402,32 @@ fn main() {
         input().with_default_value("60").with_id("timeout").into(),
     ]))
     .unwrap();
+
+    app.append_child(&div([
+        element("span").with_text_content("ensure that two strings are the reverse of each other:"),
+        input().with_type("checkbox").with_id("palindrome").into(),
+    ]))
+    .unwrap();
+
     app.append_child(&button().with_id("generate").with_text_content("generate"))
         .unwrap();
-    app.append_child(&element("div").with_id("outputs").into())
+    app.append_child(&element("div").with_id("log").into())
         .unwrap();
+
+    app.append_child(
+        &div([
+            div([
+                button().with_id("reverse").with_text_content("reverse"),
+                element("span").with_id("reverse_description").into(),
+            ])
+            .into(),
+            element("div").with_id("string_a").into(),
+            element("div").with_id("string_b").into(),
+        ])
+        .with_id("outputs"),
+    )
+    .unwrap();
+    display("outputs", "none");
 
     let number = document().get_element_by_id("number").unwrap();
     let closure = Closure::<dyn Fn()>::new(update_input);
@@ -412,4 +447,33 @@ fn main() {
         .add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())
         .unwrap();
     closure.forget();
+
+    let reverse = document().get_element_by_id("reverse").unwrap();
+    let closure = Closure::<dyn Fn()>::new(reverse_output);
+    reverse
+        .add_event_listener_with_callback("click", closure.as_ref().unchecked_ref())
+        .unwrap();
+    closure.forget();
+}
+
+fn reverse_output() {
+    let reverse_description = document().get_element_by_id("reverse_description").unwrap();
+    let reversed = reverse_description.text_content().unwrap() == REVERSE_DESCRIPTION[1];
+    reverse_description.set_text_content(Some(REVERSE_DESCRIPTION[!reversed as usize]));
+    let string_a = document().get_element_by_id("string_a").unwrap();
+    let a = string_a
+        .text_content()
+        .unwrap()
+        .chars()
+        .rev()
+        .collect::<String>();
+    string_a.set_text_content(Some(&a));
+    let string_b = document().get_element_by_id("string_b").unwrap();
+    let b = string_b
+        .text_content()
+        .unwrap()
+        .chars()
+        .rev()
+        .collect::<String>();
+    string_b.set_text_content(Some(&b));
 }
