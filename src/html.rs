@@ -14,6 +14,7 @@ const DEFAULT_MODULO: [&str; 4] = [
     "1000000000000000003",
     "18446744073709551616",
 ];
+const DEFAULT_SIGMA: &str = "26";
 const DEFAULT_BASE: [&str; 4] = ["233", "27", "257", "114514"];
 const DEFAULT_LENGTH: &str = "20";
 const DEFAULT_PRECISION: &str = "10";
@@ -202,6 +203,10 @@ fn get_inputs() -> Result<Parameters, String> {
     if precision == 0 || precision > 100 {
         return Err("[precision] should be between 1 and 100".to_string());
     }
+    let sigma = get_value_parsed("sigma", "an unsigned 64-bit integer")?;
+    if sigma <= 1 || sigma > 26 {
+        return Err("[size of character set] should be between 2 and 26".to_string());
+    }
     let timeout = get_value_parsed("timeout", "a number")?;
     if timeout <= 0. {
         return Err("[timeout] should be positive".to_string());
@@ -220,6 +225,7 @@ fn get_inputs() -> Result<Parameters, String> {
         delta,
         eta,
         precision,
+        sigma,
         palindrome,
         timeout,
     })
@@ -394,6 +400,14 @@ fn main() {
             .with_atrribute("min", "1")
             .with_atrribute("max", "100")
             .with_id("precision")
+            .into(),
+    ]))
+    .unwrap();
+    app.append_child(&div([
+        element("span").with_text_content("size of character set: "),
+        input()
+            .with_default_value(DEFAULT_SIGMA)
+            .with_id("sigma")
             .into(),
     ]))
     .unwrap();

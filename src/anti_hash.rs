@@ -1,6 +1,5 @@
 use bigdecimal::{num_bigint::BigInt, BigDecimal, FromPrimitive, One, Zero};
 use web_sys::js_sys::Date;
-const SIGMA: i32 = 26;
 pub fn powers(base: &BigInt, modulo: &BigInt, length: usize) -> Vec<BigInt> {
     let mut result = Vec::new();
     result.push(BigInt::one() % modulo);
@@ -21,6 +20,7 @@ struct L2 {
     delta: BigDecimal,
     eta: BigDecimal,
     precision: u64,
+    sigma: usize,
     timeout: f64,
     start_time: f64,
     n_: usize,
@@ -32,6 +32,7 @@ impl L2 {
         delta: BigDecimal,
         eta: BigDecimal,
         precision: u64,
+        sigma: usize,
         timeout: f64,
         n_: usize,
     ) -> Self {
@@ -47,6 +48,7 @@ impl L2 {
             delta,
             eta,
             precision,
+            sigma,
             timeout,
             start_time,
             n_,
@@ -138,7 +140,7 @@ impl L2 {
         if self.b[i][..self.n_].iter().any(|val| val != &BigInt::ZERO) {
             return false;
         }
-        if self.row_max(i) >= BigInt::from_i32(SIGMA).unwrap() {
+        if self.row_max(i) >= BigInt::from_usize(self.sigma).unwrap() {
             return false;
         }
         true
@@ -172,6 +174,7 @@ pub struct Parameters {
     pub eta: BigDecimal,
     pub precision: u64,
     pub palindrome: bool,
+    pub sigma: usize,
 
     pub timeout: f64,
 }
@@ -220,6 +223,7 @@ pub fn anti_palindrome_hash(parameters: Parameters) -> AntiResult {
         precision,
         timeout,
         palindrome: _,
+        sigma,
     } = parameters;
     if length == 1 {
         return AntiResult::NotFound(0., None);
@@ -242,7 +246,7 @@ pub fn anti_palindrome_hash(parameters: Parameters) -> AntiResult {
     for i in 0..length / 2 {
         b[i][n + i] = BigInt::one();
     }
-    let mut l2 = L2::new(b, delta, eta, precision, timeout, n);
+    let mut l2 = L2::new(b, delta, eta, precision, sigma, timeout, n);
     l2.reduce();
     let mut best = None;
     let mut best_vec = None;
@@ -261,7 +265,7 @@ pub fn anti_palindrome_hash(parameters: Parameters) -> AntiResult {
             })
             .max()
             .unwrap();
-        if cur < BigInt::from_i32(SIGMA).unwrap() {
+        if cur < BigInt::from_usize(sigma).unwrap() {
             let mut a = String::new();
             let mut b = String::new();
             for i in 0..length / 2 {
@@ -313,6 +317,7 @@ pub fn anti_hash(parameters: Parameters) -> AntiResult {
         precision,
         timeout,
         palindrome: _,
+        sigma,
     } = parameters;
     let n = modulo.len();
     let mut b = vec![vec![BigInt::ZERO; length + n]; length + n];
@@ -326,7 +331,7 @@ pub fn anti_hash(parameters: Parameters) -> AntiResult {
     for i in 0..length {
         b[i][n + i] = BigInt::one();
     }
-    let mut l2 = L2::new(b, delta, eta, precision, timeout, n);
+    let mut l2 = L2::new(b, delta, eta, precision, sigma, timeout, n);
     l2.reduce();
     let mut best = None;
     let mut best_vec = None;
@@ -345,7 +350,7 @@ pub fn anti_hash(parameters: Parameters) -> AntiResult {
             })
             .max()
             .unwrap();
-        if cur < BigInt::from_i32(SIGMA).unwrap() {
+        if cur < BigInt::from_usize(sigma).unwrap() {
             let mut a = String::new();
             let mut b = String::new();
             for i in 0..length {
