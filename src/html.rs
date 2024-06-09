@@ -7,15 +7,16 @@ use web_sys::{
 };
 
 use crate::anti_hash::{anti_hash, Parameters};
-const N: usize = 4;
-const DEFAULT_MODULO: [&str; 4] = [
+const N: usize = 5;
+const DEFAULT_MODULO: [&str; 5] = [
     "998244353",
     "1000000007",
     "1000000000000000003",
     "18446744073709551616",
+    "18446744073709551616",
 ];
 const DEFAULT_SIGMA: &str = "26";
-const DEFAULT_BASE: [&str; 4] = ["233", "27", "257", "114514"];
+const DEFAULT_BASE: [&str; 5] = ["233", "27", "257", "114514", "114514"];
 const DEFAULT_LENGTH: &str = "20";
 const DEFAULT_PRECISION: &str = "10";
 const REVERSE_DESCRIPTION: [&str; 2] = ["h ≡ ∑ si q^i (mod p)", "h ≡ ∑ si q^(n-1-i) (mod p)"];
