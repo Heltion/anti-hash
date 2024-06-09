@@ -7,16 +7,16 @@ use web_sys::{
 };
 
 use crate::anti_hash::{anti_hash, Parameters};
-const N: usize = 5;
-const DEFAULT_MODULO: [&str; 5] = [
+const N: usize = 100;
+const DEFUALT_N: usize = 4;
+const DEFAULT_MODULO: [&str; DEFUALT_N] = [
     "998244353",
     "1000000007",
     "1000000000000000003",
     "18446744073709551616",
-    "18446744073709551616",
 ];
 const DEFAULT_SIGMA: &str = "26";
-const DEFAULT_BASE: [&str; 5] = ["233", "27", "257", "114514", "114514"];
+const DEFAULT_BASE: [&str; DEFUALT_N] = ["233", "27", "257", "114514"];
 const DEFAULT_LENGTH: &str = "20";
 const DEFAULT_PRECISION: &str = "10";
 const REVERSE_DESCRIPTION: [&str; 2] = ["h ≡ ∑ si q^i (mod p)", "h ≡ ∑ si q^(n-1-i) (mod p)"];
@@ -349,13 +349,17 @@ fn main() {
                 element("span").with_text_content(&format!("modulo_{}: ", i)),
                 input()
                     .with_type("number")
-                    .with_default_value(DEFAULT_MODULO[i])
+                    .with_default_value(if i < DEFUALT_N {
+                        DEFAULT_MODULO[i]
+                    } else {
+                        "1"
+                    })
                     .with_id(&format!("modulo_{}", i))
                     .into(),
                 element("span").with_text_content(&format!(" base_{}: ", i)),
                 input()
                     .with_type("number")
-                    .with_default_value(DEFAULT_BASE[i])
+                    .with_default_value(if i < DEFUALT_N { DEFAULT_BASE[i] } else { "0" })
                     .with_id(&format!("base_{}", i))
                     .into(),
             ])
