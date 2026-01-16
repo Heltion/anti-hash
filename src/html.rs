@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
-use bigdecimal::{num_bigint::BigInt, BigDecimal, FromPrimitive, One};
+use malachite::Integer;
+use malachite_float::Float;
 use wasm_bindgen::{closure::Closure, prelude::wasm_bindgen, JsCast, JsValue};
 use web_sys::{
     Document, Element, HtmlButtonElement, HtmlDivElement, HtmlElement, HtmlInputElement, Node,
@@ -8,15 +9,15 @@ use web_sys::{
 
 use crate::anti_hash::{anti_hash, Parameters};
 const N: usize = 100;
-const DEFUALT_N: usize = 4;
-const DEFAULT_MODULO: [&str; DEFUALT_N] = [
+const DEFAULT_N: usize = 4;
+const DEFAULT_MODULO: [&str; DEFAULT_N] = [
     "998244353",
     "1000000007",
     "1000000000000000003",
     "18446744073709551616",
 ];
 const DEFAULT_SIGMA: &str = "26";
-const DEFAULT_BASE: [&str; DEFUALT_N] = ["233", "27", "257", "114514"];
+const DEFAULT_BASE: [&str; DEFAULT_N] = ["233", "27", "257", "114514"];
 const DEFAULT_LENGTH: &str = "20";
 const DEFAULT_PRECISION: &str = "10";
 const REVERSE_DESCRIPTION: [&str; 2] = ["h ≡ ∑ si q^i (mod p)", "h ≡ ∑ si q^(n-1-i) (mod p)"];
@@ -88,18 +89,18 @@ impl WithId for HtmlButtonElement {}
 impl WithId for HtmlDivElement {}
 impl WithId for HtmlInputElement {}
 
-trait WithAtrribute
+trait WithAttribute
 where
     Self: Into<Element>,
 {
-    fn with_atrribute(self, name: &str, value: &str) -> Element {
+    fn with_attribute(self, name: &str, value: &str) -> Element {
         let element: Element = self.into();
         element.set_attribute(name, value).unwrap();
         element
     }
 }
-impl WithAtrribute for Element {}
-impl WithAtrribute for HtmlInputElement {}
+impl WithAttribute for Element {}
+impl WithAttribute for HtmlInputElement {}
 
 trait WithTextContent
 where
@@ -167,7 +168,7 @@ fn get_inputs() -> Result<Parameters, String> {
     }
     let length = get_value_parsed("length", "an unsigned 64-bit integer")?;
     if length == 0 {
-        return Err("[length] should be postive.".to_string());
+        return Err("[length] should be positive.".to_string());
     }
     let mut modulo = Vec::new();
     for i in 0..number {
@@ -178,7 +179,7 @@ fn get_inputs() -> Result<Parameters, String> {
         base.push(get_value_parsed(&format!("base_{}", i), "an integer")?);
     }
     for i in 0..number {
-        if base[i] < BigInt::ZERO {
+        if base[i] < Integer::from(0) {
             return Err(format!("[base_{}] should be non-negative.", i));
         }
         if base[i] >= modulo[i] {
@@ -188,18 +189,28 @@ fn get_inputs() -> Result<Parameters, String> {
             ));
         }
     }
-    let lambda = get_value_parsed("lambda", "an intger")?;
-    if lambda <= BigInt::ZERO {
+    let lambda = get_value_parsed("lambda", "an integer")?;
+    if lambda <= Integer::from(0) {
         return Err("[lambda] should be positive".to_string());
     }
-    let delta = get_value_parsed("delta", "a number")?;
-    if delta >= BigDecimal::one() {
+
+    // Parse floats using f64 intermediate due to possible lack of FromStr for Float
+    let delta_val: f64 = get_value_parsed("delta", "a number")?;
+    let delta = Float::from(delta_val);
+
+    // Check one. Using precision 53 for comparison as it came from f64.
+    if delta >= Float::one_prec(53) {
         return Err("[delta] should be strictly less than 1.".to_string());
     }
-    let eta = get_value_parsed("eta", "a number")?;
-    if eta <= BigDecimal::from_f64(0.5).unwrap() {
+
+    let eta_val: f64 = get_value_parsed("eta", "a number")?;
+    let eta = Float::from(eta_val);
+
+    // Check 0.5.
+    if eta <= Float::from(0.5) {
         return Err("[eta] should be strictly greater than 0.5".to_string());
     }
+
     let precision = get_value_parsed("precision", "an unsigned 64-bit integer")?;
     if precision == 0 || precision > 100 {
         return Err("[precision] should be between 1 and 100".to_string());
@@ -305,7 +316,7 @@ fn main() {
     let app = document().get_element_by_id("app").unwrap();
     app.append_child(&element("h1").with_text_content("Anti-hash Test Generator"))
         .unwrap();
-    let a = element("a").with_atrribute(
+    let a = element("a").with_attribute(
         "href",
         &format!(
             "https://github.com/{}/{}",
@@ -313,7 +324,7 @@ fn main() {
             env!("CARGO_PKG_NAME")
         ),
     );
-    a.append_child(&element("img").with_atrribute(
+    a.append_child(&element("img").with_attribute(
         "src",
         &format!(
             "https://img.shields.io/github/stars/{}/{}",
@@ -338,8 +349,8 @@ fn main() {
             .with_type("number")
             .with_default_value("1")
             .with_id("number")
-            .with_atrribute("min", "1")
-            .with_atrribute("max", &N.to_string())
+            .with_attribute("min", "1")
+            .with_attribute("max", &N.to_string())
             .into(),
     ]))
     .unwrap();
@@ -349,7 +360,7 @@ fn main() {
                 element("span").with_text_content(&format!("modulo_{}: ", i)),
                 input()
                     .with_type("number")
-                    .with_default_value(if i < DEFUALT_N {
+                    .with_default_value(if i < DEFAULT_N {
                         DEFAULT_MODULO[i]
                     } else {
                         "1"
@@ -359,7 +370,7 @@ fn main() {
                 element("span").with_text_content(&format!(" base_{}: ", i)),
                 input()
                     .with_type("number")
-                    .with_default_value(if i < DEFUALT_N { DEFAULT_BASE[i] } else { "0" })
+                    .with_default_value(if i < DEFAULT_N { DEFAULT_BASE[i] } else { "0" })
                     .with_id(&format!("base_{}", i))
                     .into(),
             ])
@@ -402,8 +413,8 @@ fn main() {
         input()
             .with_type("number")
             .with_default_value(DEFAULT_PRECISION)
-            .with_atrribute("min", "1")
-            .with_atrribute("max", "100")
+            .with_attribute("min", "1")
+            .with_attribute("max", "100")
             .with_id("precision")
             .into(),
     ]))

@@ -9,7 +9,8 @@ crate-type = ["cdylib", "rlib"]
 
 
 [dependencies]
-bigdecimal = "*"
+malachite = "*"
+malachite-float = "*"
 wasm-bindgen = "*"
 web-sys = { version = "*", features = [
     "console",
