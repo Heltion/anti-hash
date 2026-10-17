@@ -7,7 +7,7 @@ use web_sys::{
     Document, Element, HtmlButtonElement, HtmlDivElement, HtmlElement, HtmlInputElement, Node,
 };
 
-use crate::anti_hash::{anti_hash_with_bkz, BkzOptions, Parameters};
+use crate::anti_hash::{anti_hash_with_bkz, anti_hash_with_infinity_norm, BkzOptions, Parameters};
 const N: usize = 100;
 const DEFAULT_N: usize = 4;
 const DEFAULT_MODULO: [&str; DEFAULT_N] = [
@@ -280,7 +280,17 @@ fn run_anti_hash() {
             return;
         }
     };
-    let result = anti_hash_with_bkz(input, options);
+    let infinity = document()
+        .get_element_by_id("infinity_norm")
+        .unwrap()
+        .dyn_into::<HtmlInputElement>()
+        .unwrap()
+        .checked();
+    let result = if infinity {
+        anti_hash_with_infinity_norm(input, options)
+    } else {
+        anti_hash_with_bkz(input, options)
+    };
     log.set_text_content(None);
     match result {
         crate::anti_hash::AntiResult::NotFound(time, best) => {
@@ -446,6 +456,15 @@ fn main() {
         input()
             .with_default_value(DEFAULT_SIGMA)
             .with_id("sigma")
+            .into(),
+    ]))
+    .unwrap();
+    app.append_child(&div([
+        element("span")
+            .with_text_content("optimize maximum character difference after reduction: "),
+        input()
+            .with_type("checkbox")
+            .with_id("infinity_norm")
             .into(),
     ]))
     .unwrap();

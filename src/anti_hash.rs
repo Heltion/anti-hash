@@ -328,6 +328,54 @@ impl L2 {
         }
     }
 
+    /// Optimize actual character differences on the zero-residue sublattice.
+    /// Each accepted b_i <- b_i + t*b_j is unimodular and strictly decreases
+    /// that row's infinity norm. Sweep and timeout budgets bound the work;
+    /// failing to find a collision is not a nonexistence proof.
+    fn reduce_infinity_norm(&mut self) {
+        use crate::infinity_norm::{bounded_step, improving_step};
+        let mut rows: Vec<usize> = (0..self.b.len())
+            .filter(|&i| self.b[i][..self.n_].iter().all(|x| x == &Integer::from(0)))
+            .collect();
+        if rows.iter().any(|&i| self.check_row(i)) || self.check_time_out() {
+            return;
+        }
+        rows.sort_by_key(|&i| self.row_max(i));
+        let target = Integer::from(self.sigma) - Integer::from(1);
+        for _ in 0..2 {
+            let mut changed = false;
+            for &i in &rows {
+                for &j in &rows {
+                    if i == j {
+                        continue;
+                    }
+                    if self.check_time_out() {
+                        return;
+                    }
+                    let v = &self.b[i][self.n_..];
+                    let w = &self.b[j][self.n_..];
+                    let step = bounded_step(v, w, &target).or_else(|| improving_step(v, w));
+                    if let Some(step) = step {
+                        if step == 0 {
+                            continue;
+                        }
+                        let other = self.b[j].clone();
+                        for (x, y) in self.b[i].iter_mut().zip(other) {
+                            *x += &step * y;
+                        }
+                        changed = true;
+                        if self.check_row(i) {
+                            return;
+                        }
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+    }
+
     fn row_max(&self, i: usize) -> Integer {
         self.b[i][self.n_..]
             .iter()
@@ -437,10 +485,14 @@ fn check(a: &String, b: &String, modulo: Vec<Integer>, base: Vec<Integer>) -> bo
 }
 
 pub fn anti_palindrome_hash(parameters: Parameters) -> AntiResult {
-    anti_palindrome_hash_with_bkz(parameters, BkzOptions::default())
+    anti_palindrome_hash_with_bkz(parameters, BkzOptions::default(), false)
 }
 
-fn anti_palindrome_hash_with_bkz(parameters: Parameters, options: BkzOptions) -> AntiResult {
+fn anti_palindrome_hash_with_bkz(
+    parameters: Parameters,
+    options: BkzOptions,
+    infinity: bool,
+) -> AntiResult {
     let Parameters {
         length,
         modulo,
@@ -476,6 +528,9 @@ fn anti_palindrome_hash_with_bkz(parameters: Parameters, options: BkzOptions) ->
     }
     let mut l2 = L2::new(b, delta, eta, precision, sigma, timeout, n);
     l2.reduce_bkz(options);
+    if infinity {
+        l2.reduce_infinity_norm();
+    }
     let mut best = None;
     let mut best_vec = None;
     for row in &l2.b {
@@ -529,8 +584,18 @@ pub fn anti_hash(parameters: Parameters) -> AntiResult {
 /// Run L² first, then bounded projected-block BKZ if no collision was found.
 /// Both stages share `parameters.timeout`; failure is not a nonexistence proof.
 pub fn anti_hash_with_bkz(parameters: Parameters, options: BkzOptions) -> AntiResult {
+    anti_hash_internal(parameters, options, false)
+}
+
+/// Add exact local infinity-norm reduction after the configured L²/BKZ search.
+/// This preserves baseline successes and shares the original timeout budget.
+pub fn anti_hash_with_infinity_norm(parameters: Parameters, options: BkzOptions) -> AntiResult {
+    anti_hash_internal(parameters, options, true)
+}
+
+fn anti_hash_internal(parameters: Parameters, options: BkzOptions, infinity: bool) -> AntiResult {
     if parameters.palindrome {
-        return anti_palindrome_hash_with_bkz(parameters, options);
+        return anti_palindrome_hash_with_bkz(parameters, options, infinity);
     }
     let Parameters {
         length,
@@ -558,6 +623,9 @@ pub fn anti_hash_with_bkz(parameters: Parameters, options: BkzOptions) -> AntiRe
     }
     let mut l2 = L2::new(b, delta, eta, precision, sigma, timeout, n);
     l2.reduce_bkz(options);
+    if infinity {
+        l2.reduce_infinity_norm();
+    }
     let mut best = None;
     let mut best_vec = None;
     for row in &l2.b {
@@ -641,6 +709,30 @@ mod tests {
     }
 
     #[test]
+    fn infinity_reduction_preserves_lattice_and_zero_residues() {
+        let mut l = reducer(vec![
+            vec![0, 6, 0, -2],
+            vec![0, -1, 5, 7],
+            vec![0, 0, 9, 1],
+            vec![101, 0, 0, 0],
+        ]);
+        l.n_ = 1;
+        l.sigma = 6;
+        let det = determinant(&l.b).abs();
+        assert!(!(0..l.b.len()).any(|i| l.check_row(i)));
+        l.reduce_infinity_norm();
+        assert_eq!(determinant(&l.b).abs(), det);
+        assert!((0..l.b.len()).any(|i| l.check_row(i)));
+        assert_eq!(
+            l.b[0],
+            vec![0, 5, 5, 5]
+                .into_iter()
+                .map(Integer::from)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn bkz_improves_a_l2_reduced_basis() {
         let mut l = reducer(vec![
             vec![1, 11, -18, -15, -8],
@@ -702,6 +794,43 @@ mod tests {
             };
             assert_eq!(hash(a), hash(b));
         }
+    }
+
+    #[test]
+    fn infinity_finds_collisions_missed_by_bkz() {
+        for (pairs, length, seed, reverse) in
+            [(2, 11, 44, false), (3, 16, 6, false), (3, 32, 24, true)]
+        {
+            let p = hash_parameters(pairs, length, seed, reverse);
+            let options = BkzOptions {
+                block_size: 20,
+                max_tours: 4,
+            };
+            assert!(matches!(
+                anti_hash_with_bkz(p.clone(), options),
+                AntiResult::NotFound(..)
+            ));
+            match anti_hash_with_infinity_norm(p.clone(), options) {
+                AntiResult::Ok(_, a, b) => verify_collision(&a, &b, &p),
+                _ => panic!("infinity reduction did not find collision"),
+            }
+        }
+    }
+
+    #[test]
+    fn expired_deadline_leaves_infinity_basis_unchanged() {
+        let mut l = reducer(vec![
+            vec![0, 6, 0, -2],
+            vec![0, -1, 5, 7],
+            vec![0, 0, 9, 1],
+            vec![101, 0, 0, 0],
+        ]);
+        l.n_ = 1;
+        l.sigma = 6;
+        l.timeout = -1.;
+        let before = l.b.clone();
+        l.reduce_infinity_norm();
+        assert_eq!(l.b, before);
     }
 
     #[test]
