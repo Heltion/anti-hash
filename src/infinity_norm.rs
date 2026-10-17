@@ -5,9 +5,9 @@
 //! Inspired by Lovász–Scarf, "The Generalized Basis Reduction Algorithm"
 //! (1992), https://doi.org/10.1287/moor.17.3.751 . The implemented objective is
 //! max |v_j| on exact zero-residue vectors, using only integer row additions.
+use malachite::Integer;
 use malachite::base::num::arithmetic::traits::{Abs, DivRound};
 use malachite::base::rounding_modes::RoundingMode::{Ceiling, Floor};
-use malachite::Integer;
 
 /// Find an integer t with ||v + t*w||_infinity <= radius. Every coordinate
 /// gives an exact closed integer interval; their intersection is feasible iff
