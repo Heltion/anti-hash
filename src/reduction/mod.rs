@@ -20,6 +20,7 @@ pub(crate) struct Reducer {
     eta: Float,
     precision: u64,
     sigma: usize,
+    pub(crate) allowed_differences: Option<Vec<bool>>,
     timeout: f64,
     clock: Clock,
     residue_columns: usize,
@@ -55,6 +56,7 @@ impl Reducer {
             eta: (eta * Float::from(2.0) + Float::one_prec(prec_bits)) / Float::from(4.0),
             precision: prec_bits,
             sigma,
+            allowed_differences: None,
             timeout,
             clock: Clock::start(),
             residue_columns,
@@ -223,7 +225,13 @@ impl Reducer {
         if self.row_max(i) >= self.sigma {
             return false;
         }
-        true
+        self.allowed_differences.as_ref().is_none_or(|allowed| {
+            self.b[i][self.residue_columns..].iter().all(|x| {
+                usize::try_from(&x.abs())
+                    .ok()
+                    .is_some_and(|d| allowed.get(d) == Some(&true))
+            })
+        })
     }
     pub(crate) fn runtime(&self) -> f64 {
         self.clock.elapsed()

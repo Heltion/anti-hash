@@ -3,57 +3,152 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>anti-hash</title>
+    <meta name="color-scheme" content="light">
+    <title>anti-hash · Collision generator</title>
     <style>
-        body { max-width: 54rem; margin: 2rem auto; padding: 0 1rem; font: 16px/1.5 system-ui, sans-serif; }
-        fieldset { margin: 1rem 0; border: 1px solid #bbb; border-radius: .4rem; }
-        label { display: block; margin: .5rem 0; }
-        input:not([type=checkbox]) { width: 13rem; max-width: 100%; font: inherit; }
-        button { padding: .4rem .8rem; font: inherit; cursor: pointer; }
-        pre, #log { white-space: pre-wrap; overflow-wrap: anywhere; }
-        .hash-pair { border-top: 1px solid #ddd; }
+        :root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #20312e; background: #f5f7f5; font-synthesis: none; --muted: #64756f; --line: #dce5df; --accent: #17634e; }
+        * { box-sizing: border-box; }
+        [hidden] { display: none !important; }
+        body { margin: 0; font-size: 15px; line-height: 1.5; }
+        main { max-width: 1120px; padding: 28px 32px 36px; margin: auto; }
+        header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+        .eyebrow { color: var(--accent); text-transform: uppercase; font-size: 11px; font-weight: 750; letter-spacing: .15em; margin: 0 0 5px; }
+        h1 { font-size: clamp(26px, 4vw, 36px); letter-spacing: -.045em; line-height: 1.2; margin: 0 0 7px; }
+        .intro { color: var(--muted); margin: 0; }
+        .star { flex-shrink: 0; display: inline-flex; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: white; }
+        .star img { display: block; height: 20px; }
+        .configuration { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; align-items: start; }
+        fieldset { min-width: 0; border: 0; padding: 18px; margin: 0; border-radius: 16px; background: #fff; box-shadow: 0 0 0 1px var(--line), 0 4px 16px #20312e04; }
+        legend { float: left; width: 100%; font-size: 17px; font-weight: 700; margin-bottom: 4px; padding: 0; letter-spacing: -.02em; }
+        fieldset > .section-note { clear: both; }
+        .section-note { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
+        .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; min-width: 0; }
+        input:not([type=checkbox]), select { width: 100%; min-width: 0; height: 36px; padding: 6px 10px; border: 1px solid #cbd8d0; border-radius: 8px; background: #fff; color: inherit; font: 14px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; transition: border-color .15s, box-shadow .15s; }
+        input:hover { border-color: #91ad9e; }
+        select:focus-visible, input:focus-visible, button:focus-visible, summary:focus-visible, a:focus-visible { outline: 3px solid #b1dfca; outline-offset: 3px; }
+        input:not([type=checkbox]):focus { border-color: var(--accent); box-shadow: 0 0 0 3px #17634e0d; outline: none; }
+        small { color: var(--muted); font-size: 12px; font-weight: 400; }
+        .hash-table-wrap { margin: 14px 0; border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
+        .hash-table { width: 100%; table-layout: fixed; border-collapse: collapse; text-align: left; }
+        .pair-index { width: 30px; }
+        .pair-modulo { width: 58%; }
+        .hash-table thead { background: #f2f6f3; }
+        .hash-table th { color: var(--muted); font-size: 12px; font-weight: 600; padding: 7px 8px; }
+        .hash-table tbody th { text-align: center; font-weight: 400; }
+        .hash-table td { padding: 5px 6px; }
+        .hash-table tbody tr { border-top: 1px solid var(--line); }
+        .hash-table input { height: 32px; padding: 5px 8px; font-size: 13px; border-radius: 5px; }
+        .check { flex-direction: row; align-items: flex-start; gap: 10px; font-size: 14px; font-weight: 500; cursor: pointer; }
+        .check input { width: 17px; height: 17px; flex-shrink: 0; margin: 3px 0 0; accent-color: var(--accent); cursor: pointer; }
+        .check small { display: block; margin-top: 3px; }
+        .option { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+        .timeout { margin-top: 12px; }
+        details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+        summary { cursor: pointer; font-size: 13px; font-weight: 600; padding: 3px 0; color: var(--muted); }
+        details .fields { margin-top: 12px; }
+        .actions { display: flex; align-items: center; gap: 14px; margin: 14px 0; }
+        button { font: inherit; font-weight: 600; border: 1px solid var(--line); border-radius: 9px; cursor: pointer; padding: 9px 15px; color: inherit; background: white; }
+        button:hover { background: #edf3ef; }
+        #generate { background: var(--accent); color: #fff; border-color: var(--accent); padding: 10px 22px; white-space: nowrap; }
+        #generate:hover { background: #104d3c; }
+        button:disabled { cursor: wait; opacity: .55; }
+        #log { margin: 0; color: var(--muted); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+        #search_progress { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+        #search_progress:empty { display: none; }
+        #log:empty { display: none; }
+        .results { border: 1px solid var(--line); border-radius: 16px; background: #fff; padding: 18px; }
+        .results h2 { font-size: 16px; margin: 0; }
+        .result-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+        .result-heading span { font-size: 12px; color: var(--muted); }
+        .empty { font-size: 14px; color: var(--muted); margin: 0; padding: 10px 0; }
+        .results:has(#outputs:not([hidden])) .empty { display: none; }
+        .output-toolbar { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+        #reverse { font-size: 12px; padding: 6px 10px; }
+        #reverse_description { font-size: 13px; color: var(--muted); }
+        .string-heading { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; margin-bottom: 5px; }
+        .copy { font-size: 12px; padding: 5px 12px; min-width: 72px; }
+        .copy[data-copied] { color: var(--accent); background: #edf7f0; border-color: #acd0bb; }
+        .string-label { color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; margin: 0; }
+        pre { margin: 0; padding: 10px 12px; border-radius: 8px; background: #f2f6f3; color: #164d3d; font: 14px/1.7 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+        @media (max-width: 720px) { main { padding: 20px 16px 28px; } header { align-items: flex-start; gap: 12px; } .configuration { grid-template-columns: 1fr; } fieldset, .results { padding: 16px; } input:not([type=checkbox]), select { height: 40px; } .hash-table input { height: 36px; } .star { padding: 8px; } .actions { align-items: flex-start; flex-direction: column; gap: 12px; } #generate { width: 100%; } .result-heading span { display: none; } }
+        @media (max-width: 400px) { header { flex-direction: column; } .fields { gap: 12px; } }
     </style>
     <script type="module">
         import init from "./pkg/anti_hash.js";
-        try {
-            await init();
-        } catch (error) {
-            document.getElementById("log").textContent = `Unable to load WebAssembly: ${error}`;
-        }
+        init().catch(error => { document.getElementById("log").textContent = `Unable to load WebAssembly: ${error}`; });
     </script>
 </head>
 <body>
     <main id="app">
-        <h1>Anti-hash Test Generator</h1>
-        <a href="https://github.com/Heltion/anti-hash">GitHub</a>
+        <header>
+            <div>
+                <p class="eyebrow">Polynomial hash tools</p>
+                <h1>Anti-hash Test Generator</h1>
+                <p class="intro">Find two different strings with the same polynomial hashes.</p>
+            </div>
+            <a class="star" href="https://github.com/Heltion/anti-hash" aria-label="Star anti-hash on GitHub"><img src="https://img.shields.io/github/stars/Heltion/anti-hash?style=social" alt="GitHub stars"></a>
+        </header>
         <form id="search" novalidate>
-            <fieldset>
-                <legend>Hash configuration</legend>
-                <label>Length: <input id="length" type="number" min="1" value="20" required></label>
-                <label>Number of modulo-base pairs: <input id="number" type="number" min="1" max="100" value="1" required></label>
-                <div id="hashes"></div>
-                <label>Size of character set: <input id="sigma" type="number" min="2" max="26" value="26" required></label>
-                <label><input id="palindrome" type="checkbox"> Ensure the strings are the reverse of each other</label>
-            </fieldset>
-            <fieldset>
-                <legend>Reduction</legend>
-                <label>Lambda: <input id="lambda" inputmode="numeric" value="100000" required></label>
-                <label>Delta: <input id="delta" value="0.99" required></label>
-                <label>Eta: <input id="eta" value="0.51" required></label>
-                <label>Precision (decimal digits): <input id="precision" type="number" min="1" max="100" value="10" required></label>
-                <label>BKZ block size (2 = L² only): <input id="block_size" type="number" min="2" max="40" value="2" required></label>
-                <label>Maximum BKZ tours: <input id="max_tours" type="number" min="1" max="100" value="4" required></label>
-                <label><input id="infinity_norm" type="checkbox"> Infinity norm optimization (reduce maximum character difference)</label>
-                <label>Timeout in seconds: <input id="timeout" type="number" min="0" step="any" value="60" required></label>
-            </fieldset>
-            <button id="generate" type="submit" disabled>Generate</button>
+            <div class="configuration">
+                <fieldset>
+                    <legend>Hash configuration</legend>
+                    <p class="section-note">Choose the strings and the hashes they should share.</p>
+                    <div class="fields">
+                        <label>String length<input id="length" list="length_options" value="auto" required><datalist id="length_options"><option value="auto"></option></datalist><small>Auto finds a short length; or enter a number.</small></label>
+                        <label>Hash pairs<input id="number" type="number" min="1" max="100" value="1" required></label>
+                    </div>
+                    <div class="hash-table-wrap">
+                        <table class="hash-table" aria-label="Modulo and base pairs">
+                            <colgroup><col class="pair-index"><col class="pair-modulo"><col></colgroup>
+                            <thead><tr><th scope="col">#</th><th scope="col">Modulo p</th><th scope="col">Base q</th></tr></thead>
+                            <tbody id="hashes"></tbody>
+                        </table>
+                    </div>
+                    <div class="fields">
+                        <label>Alphabet<select id="alphabet"><option value="letters">Letters (a–z)</option><option value="digits">Digits (0–9)</option><option value="both">Both (0–9 + a–z)</option></select></label>
+                        <label>Size<input id="sigma" type="number" min="2" max="26" value="26" required><small id="alphabet_hint">2–26 lowercase letters, starting at a.</small></label>
+                    </div>
+                    <label class="check option"><input id="palindrome" type="checkbox"><span>Reverse pair<small>Make one string the reverse of the other.</small></span></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Search settings</legend>
+                    <p class="section-note">Start with the defaults; use BKZ for stronger reduction.</p>
+                    <div class="fields">
+                        <label>BKZ block size<input id="block_size" type="number" min="2" max="40" value="2" required><small>2 = L² only · larger costs more time.</small></label>
+                        <label>Maximum tours<input id="max_tours" type="number" min="1" max="100" value="4" required><small>Tour budget when BKZ is enabled.</small></label>
+                    </div>
+                    <label class="check option"><input id="infinity_norm" type="checkbox"><span>Infinity norm optimization<small>Try to reduce the largest character difference after L² / BKZ.</small></span></label>
+                    <div class="fields timeout">
+                        <label>Time budget (seconds)<input id="timeout" type="number" min="0" step="any" value="60" required><small>Total budget across all lengths.</small></label>
+                        <label>Workers<select id="workers"><option value="1">1</option></select><small id="worker_hint">One length per worker.</small></label>
+                    </div>
+                    <details>
+                        <summary>Advanced reduction settings</summary>
+                        <div class="fields">
+                            <label>Lambda<input id="lambda" inputmode="numeric" value="100000" required></label>
+                            <label>Precision<input id="precision" type="number" min="1" max="100" value="10" required><small>Decimal digits · 1–100.</small></label>
+                            <label>Delta<input id="delta" value="0.99" required></label>
+                            <label>Eta<input id="eta" value="0.51" required></label>
+                        </div>
+                    </details>
+                </fieldset>
+            </div>
+            <div class="actions">
+                <button id="generate" type="submit" disabled>Generate collision →</button>
+                <button id="stop" type="button" hidden>Stop search</button>
+                <p id="log" role="status" aria-live="polite">Loading WebAssembly…</p>
+            </div>
+            <p id="search_progress" role="status" aria-live="polite"></p>
         </form>
-        <p id="log" role="status" aria-live="polite">Loading WebAssembly…</p>
-        <section id="outputs" hidden aria-label="Collision strings">
-            <button id="reverse" type="button">Reverse</button>
-            <span id="reverse_description">h ≡ ∑ si q^i (mod p)</span>
-            <pre id="string_a"></pre>
-            <pre id="string_b"></pre>
+        <section class="results" aria-label="Search results">
+            <div class="result-heading"><h2>Collision strings</h2><span>Click a string to select it</span></div>
+            <p class="empty">Your generated strings will appear here.</p>
+            <div id="outputs" hidden>
+                <div class="output-toolbar"><button id="reverse" type="button">Reverse strings</button><span id="reverse_description">h ≡ ∑ si q^i (mod p)</span></div>
+                <div class="string-heading"><p class="string-label">String A</p><button class="copy" id="copy_a" type="button" aria-label="Copy string A" aria-live="polite">Copy</button></div><pre id="string_a"></pre>
+                <div class="string-heading"><p class="string-label">String B</p><button class="copy" id="copy_b" type="button" aria-label="Copy string B" aria-live="polite">Copy</button></div><pre id="string_b"></pre>
+            </div>
         </section>
         <noscript>Enable JavaScript to run the generator.</noscript>
     </main>

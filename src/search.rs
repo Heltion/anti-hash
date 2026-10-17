@@ -44,11 +44,31 @@ pub enum AntiResult {
     Unknown,
 }
 
+/// Characters are literal ASCII bytes in the polynomial hash.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Alphabet {
+    #[default]
+    Letters,
+    Digits,
+    /// Digits followed by lowercase letters; size chooses a prefix.
+    Both,
+}
+impl Alphabet {
+    pub fn symbols(self) -> &'static [u8] {
+        match self {
+            Self::Letters => b"abcdefghijklmnopqrstuvwxyz",
+            Self::Digits => b"0123456789",
+            Self::Both => b"0123456789abcdefghijklmnopqrstuvwxyz",
+        }
+    }
+}
+
 /// Reduction stages share one timeout. A failed search does not prove that no collision exists.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SearchOptions {
     pub bkz: BkzOptions,
     pub infinity_norm: bool,
+    pub alphabet: Alphabet,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,8 +102,8 @@ impl Parameters {
         )?;
         require(self.lambda > 0, "lambda must be positive")?;
         require(
-            (2..=26).contains(&self.sigma),
-            "character set size must be between 2 and 26",
+            (2..=36).contains(&self.sigma),
+            "character set size must be between 2 and 36",
         )?;
         require(
             (1..=100).contains(&self.precision),
@@ -147,26 +167,52 @@ fn lattice(p: &Parameters) -> Vec<Vec<Integer>> {
     basis
 }
 
-fn strings(differences: &[Integer], p: &Parameters) -> (String, String) {
+type CharacterPairs = Vec<Option<(u8, u8)>>;
+
+fn character_pairs(symbols: &[u8]) -> CharacterPairs {
+    let width = usize::from(symbols.iter().max().unwrap() - symbols.iter().min().unwrap()) + 1;
+    let mut pairs = vec![None; width];
+    for &a in symbols {
+        for &b in symbols {
+            if b >= a {
+                pairs[usize::from(b - a)].get_or_insert((a, b));
+            }
+        }
+    }
+    pairs
+}
+
+fn strings(
+    differences: &[Integer],
+    p: &Parameters,
+    pairs: &CharacterPairs,
+    padding: u8,
+) -> Option<(String, String)> {
     let mut a = String::with_capacity(p.length);
     let mut b = String::with_capacity(p.length);
     for difference in differences {
-        // The caller checked |difference| < sigma <= 26.
-        let difference = i32::try_from(difference).expect("bounded character difference");
-        a.push(char::from(b'a' + (-difference).max(0) as u8));
-        b.push(char::from(b'a' + difference.max(0) as u8));
+        let difference = i32::try_from(difference).ok()?;
+        let (mut left, mut right) = pairs
+            .get(difference.unsigned_abs() as usize)
+            .copied()
+            .flatten()?;
+        if difference < 0 {
+            std::mem::swap(&mut left, &mut right);
+        }
+        a.push(char::from(left));
+        b.push(char::from(right));
     }
     if p.palindrome {
         let suffix_a: String = b.chars().rev().collect();
         let suffix_b: String = a.chars().rev().collect();
         if p.length % 2 == 1 {
-            a.push('a');
-            b.push('a');
+            a.push(char::from(padding));
+            b.push(char::from(padding));
         }
         a.push_str(&suffix_a);
         b.push_str(&suffix_b);
     }
-    (a, b)
+    Some((a, b))
 }
 
 fn collision(a: &str, b: &str, p: &Parameters) -> bool {
@@ -184,6 +230,11 @@ fn collision(a: &str, b: &str, p: &Parameters) -> bool {
 /// Checked search API. Every returned collision is independently verified with exact modular arithmetic.
 pub fn search(parameters: Parameters, options: SearchOptions) -> Result<AntiResult, InputError> {
     parameters.validate()?;
+    if parameters.sigma > options.alphabet.symbols().len() {
+        return Err(InputError("size exceeds the selected alphabet"));
+    }
+    let symbols = &options.alphabet.symbols()[..parameters.sigma];
+    let pairs = character_pairs(symbols);
     if options.bkz.block_size < 2 {
         return Err(InputError("BKZ block size must be at least 2"));
     }
@@ -197,10 +248,13 @@ pub fn search(parameters: Parameters, options: SearchOptions) -> Result<AntiResu
         p.delta.clone(),
         p.eta.clone(),
         p.precision,
-        p.sigma,
+        pairs.len(),
         p.timeout,
         p.modulo.len(),
     );
+    if options.alphabet == Alphabet::Both {
+        reducer.allowed_differences = Some(pairs.iter().map(Option::is_some).collect());
+    }
     reducer.reduce_bkz(options.bkz);
     if options.infinity_norm {
         reducer.reduce_infinity_norm();
@@ -219,8 +273,9 @@ pub fn search(parameters: Parameters, options: SearchOptions) -> Result<AntiResu
         if norm == 0 {
             continue;
         }
-        if norm < p.sigma {
-            let (a, b) = strings(differences, &p);
+        if norm < pairs.len()
+            && let Some((a, b)) = strings(differences, &p, &pairs, symbols[0])
+        {
             return Ok(if collision(&a, &b, &p) {
                 AntiResult::Ok(reducer.runtime(), a, b)
             } else {
@@ -254,6 +309,7 @@ pub fn anti_hash_with_bkz(parameters: Parameters, bkz: BkzOptions) -> AntiResult
         SearchOptions {
             bkz,
             infinity_norm: false,
+            alphabet: Alphabet::Letters,
         },
     )
     .unwrap_or(AntiResult::Unknown)
@@ -265,6 +321,7 @@ pub fn anti_hash_with_infinity_norm(parameters: Parameters, bkz: BkzOptions) -> 
         SearchOptions {
             bkz,
             infinity_norm: true,
+            alphabet: Alphabet::Letters,
         },
     )
     .unwrap_or(AntiResult::Unknown)
