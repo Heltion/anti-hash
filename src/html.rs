@@ -7,7 +7,7 @@ use web_sys::{
     Document, Element, HtmlButtonElement, HtmlDivElement, HtmlElement, HtmlInputElement, Node,
 };
 
-use crate::anti_hash::{anti_hash, Parameters};
+use crate::anti_hash::{anti_hash_with_bkz, BkzOptions, Parameters};
 const N: usize = 100;
 const DEFAULT_N: usize = 4;
 const DEFAULT_MODULO: [&str; DEFAULT_N] = [
@@ -258,7 +258,29 @@ fn run_anti_hash() {
             return;
         }
     };
-    let result = anti_hash(input);
+    let options = (|| -> Result<BkzOptions, String> {
+        let block_size = get_value_parsed("block_size", "an integer")?;
+        let max_tours = get_value_parsed("max_tours", "an integer")?;
+        if !(2..=40).contains(&block_size) {
+            return Err("[BKZ block size] should be between 2 and 40 (2 = L² only).".into());
+        }
+        if !(1..=100).contains(&max_tours) {
+            return Err("[BKZ tours] should be between 1 and 100.".into());
+        }
+        Ok(BkzOptions {
+            block_size,
+            max_tours,
+        })
+    })();
+    let options = match options {
+        Ok(options) => options,
+        Err(err) => {
+            log.set_text_content(Some(&err));
+            generate.set_disabled(false);
+            return;
+        }
+    };
+    let result = anti_hash_with_bkz(input, options);
     log.set_text_content(None);
     match result {
         crate::anti_hash::AntiResult::NotFound(time, best) => {
@@ -427,6 +449,20 @@ fn main() {
             .into(),
     ]))
     .unwrap();
+    for (id, label, value) in [
+        ("block_size", "BKZ block size (2 = L² only): ", "2"),
+        ("max_tours", "maximum BKZ tours: ", "4"),
+    ] {
+        app.append_child(&div([
+            element("span").with_text_content(label),
+            input()
+                .with_type("number")
+                .with_default_value(value)
+                .with_id(id)
+                .into(),
+        ]))
+        .unwrap();
+    }
     app.append_child(&div([
         element("span").with_text_content("timeout in seconds: "),
         input().with_default_value("60").with_id("timeout").into(),
