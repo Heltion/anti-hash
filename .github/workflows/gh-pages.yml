@@ -11,6 +11,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   check:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -22,6 +23,21 @@ jobs:
       - run: cargo test --locked --lib
       - run: cargo clippy --locked --lib -- -D warnings
       - run: cargo clippy --locked --lib --target wasm32-unknown-unknown -- -D warnings
+  benchmarks:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo test --locked --release --benches
+  build-pages:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - run: cargo build --locked --release --target wasm32-unknown-unknown
       - name: Install matching WebAssembly bindings generator
         run: |
@@ -31,20 +47,14 @@ jobs:
         run: |
           mkdir -p docs
           wasm-bindgen --target web --out-dir docs/pkg target/wasm32-unknown-unknown/release/anti_hash.wasm
-          cp index.html docs/index.html
+          cp index.html worker.js docs/
       - uses: actions/upload-pages-artifact@v5
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
           path: docs
-  benchmarks:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@nightly
-      - run: cargo test --locked --release --benches
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: [check, benchmarks]
+    needs: build-pages
     runs-on: ubuntu-latest
     permissions:
       pages: write
