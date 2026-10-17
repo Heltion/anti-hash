@@ -2,27 +2,18 @@
 name = "anti-hash"
 authors = ["Heltion"]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.90"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-
 [dependencies]
-malachite = "*"
-malachite-float = "*"
-wasm-bindgen = "*"
-web-sys = { version = "*", features = [
-    "console",
-    "CssStyleDeclaration",
-    "Document",
-    "DateTimeValue",
-    "Element",
-    "HtmlButtonElement",
-    "HtmlDivElement",
-    "HtmlImageElement",
-    "HtmlInputElement",
-    "Event",
-    "Node",
-    "Window",
+malachite = { version = "0.14", features = ["floats"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.129"
+web-sys = { version = "0.3.106", features = [
+    "Document", "Element", "Event", "EventTarget", "HtmlButtonElement",
+    "HtmlElement", "HtmlFormElement", "HtmlInputElement", "Node", "Window",
 ] }

@@ -1,21 +1,57 @@
-name: gh-pages
-on: push
+name: checks and GitHub Pages
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  gh-pages:
+  check:
     runs-on: ubuntu-latest
-    permissions: 
-      contents: read
-      id-token: write
-      pages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
         with:
-            toolchain: stable
-      - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      - run: wasm-pack build --release --target web --out-dir docs/pkg
-      - run: mv index.html docs/index.html
-      - uses: actions/upload-pages-artifact@v3
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo test --locked --lib
+      - run: cargo clippy --locked --lib -- -D warnings
+      - run: cargo clippy --locked --lib --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo build --locked --release --target wasm32-unknown-unknown
+      - name: Install matching WebAssembly bindings generator
+        run: |
+          version=$(python3 -c 'import tomllib; lock = tomllib.load(open("Cargo.lock", "rb")); print(next(p["version"] for p in lock["package"] if p["name"] == "wasm-bindgen"))')
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - name: Package browser application
+        run: |
+          mkdir -p docs
+          wasm-bindgen --target web --out-dir docs/pkg target/wasm32-unknown-unknown/release/anti_hash.wasm
+          cp index.html docs/index.html
+      - uses: actions/upload-pages-artifact@v5
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
-          path: ./docs
-      - uses: actions/deploy-pages@v4
+          path: docs
+  benchmarks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo test --locked --release --benches
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [check, benchmarks]
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v5
+        id: deployment

@@ -1,16 +1,61 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>anti-hash</title>
+    <style>
+        body { max-width: 54rem; margin: 2rem auto; padding: 0 1rem; font: 16px/1.5 system-ui, sans-serif; }
+        fieldset { margin: 1rem 0; border: 1px solid #bbb; border-radius: .4rem; }
+        label { display: block; margin: .5rem 0; }
+        input:not([type=checkbox]) { width: 13rem; max-width: 100%; font: inherit; }
+        button { padding: .4rem .8rem; font: inherit; cursor: pointer; }
+        pre, #log { white-space: pre-wrap; overflow-wrap: anywhere; }
+        .hash-pair { border-top: 1px solid #ddd; }
+    </style>
     <script type="module">
-        import init from "./pkg/anti_hash.js"
-        init()
+        import init from "./pkg/anti_hash.js";
+        try {
+            await init();
+        } catch (error) {
+            document.getElementById("log").textContent = `Unable to load WebAssembly: ${error}`;
+        }
     </script>
 </head>
-
 <body>
-    <div id="app"></div>
+    <main id="app">
+        <h1>Anti-hash Test Generator</h1>
+        <a href="https://github.com/Heltion/anti-hash">GitHub</a>
+        <form id="search" novalidate>
+            <fieldset>
+                <legend>Hash configuration</legend>
+                <label>Length: <input id="length" type="number" min="1" value="20" required></label>
+                <label>Number of modulo-base pairs: <input id="number" type="number" min="1" max="100" value="1" required></label>
+                <div id="hashes"></div>
+                <label>Size of character set: <input id="sigma" type="number" min="2" max="26" value="26" required></label>
+                <label><input id="palindrome" type="checkbox"> Ensure the strings are the reverse of each other</label>
+            </fieldset>
+            <fieldset>
+                <legend>Reduction</legend>
+                <label>Lambda: <input id="lambda" inputmode="numeric" value="100000" required></label>
+                <label>Delta: <input id="delta" value="0.99" required></label>
+                <label>Eta: <input id="eta" value="0.51" required></label>
+                <label>Precision (decimal digits): <input id="precision" type="number" min="1" max="100" value="10" required></label>
+                <label>BKZ block size (2 = L² only): <input id="block_size" type="number" min="2" max="40" value="2" required></label>
+                <label>Maximum BKZ tours: <input id="max_tours" type="number" min="1" max="100" value="4" required></label>
+                <label><input id="infinity_norm" type="checkbox"> Infinity norm optimization (reduce maximum character difference)</label>
+                <label>Timeout in seconds: <input id="timeout" type="number" min="0" step="any" value="60" required></label>
+            </fieldset>
+            <button id="generate" type="submit" disabled>Generate</button>
+        </form>
+        <p id="log" role="status" aria-live="polite">Loading WebAssembly…</p>
+        <section id="outputs" hidden aria-label="Collision strings">
+            <button id="reverse" type="button">Reverse</button>
+            <span id="reverse_description">h ≡ ∑ si q^i (mod p)</span>
+            <pre id="string_a"></pre>
+            <pre id="string_b"></pre>
+        </section>
+        <noscript>Enable JavaScript to run the generator.</noscript>
+    </main>
 </body>
-
 </html>
