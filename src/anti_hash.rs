@@ -4,7 +4,20 @@ use malachite::base::rounding_modes::RoundingMode;
 use malachite::{Integer, Rational};
 use malachite_float::Float;
 use std::convert::TryFrom;
+#[cfg(target_arch = "wasm32")]
 use web_sys::js_sys::Date;
+
+#[cfg(target_arch = "wasm32")]
+fn now() -> f64 {
+    Date::now() / 1000.
+}
+#[cfg(not(target_arch = "wasm32"))]
+fn now() -> f64 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64()
+}
 
 pub fn powers(base: &Integer, modulo: &Integer, length: usize) -> Vec<Integer> {
     let mut result = Vec::new();
@@ -64,7 +77,7 @@ impl L2 {
             precision: prec_bits,
             sigma,
             timeout,
-            start_time: Date::now() / 1000.,
+            start_time: now(),
             n_,
         }
     }
@@ -168,6 +181,153 @@ impl L2 {
             k += 1;
         }
     }
+    /// Recompute GSO after an integer basis change. All enumeration arithmetic
+    /// uses the same arbitrary precision as L², including the search radius.
+    fn refresh_gso(&mut self) -> bool {
+        self.r[0][0] = self.int_to_float(&dot(&self.b[0], &self.b[0]));
+        for i in 1..self.b.len() {
+            if self.check_time_out() {
+                return false;
+            }
+            self.cfa(i);
+        }
+        self.r
+            .iter()
+            .enumerate()
+            .all(|(i, row)| row[i].is_finite() && row[i] > Float::from(0))
+    }
+
+    fn reduce_bkz(&mut self, options: BkzOptions) {
+        self.reduce();
+        if options.block_size <= 2 {
+            return;
+        }
+        let mut gso_valid = false;
+        for _ in 0..options.max_tours {
+            let mut changed = false;
+            for start in 0..self.b.len().saturating_sub(1) {
+                if self.check_time_out() || (0..self.b.len()).any(|i| self.check_row(i)) {
+                    return;
+                }
+                if !gso_valid {
+                    if !self.refresh_gso() {
+                        return;
+                    }
+                    gso_valid = true;
+                }
+                let end = (start + options.block_size.min(self.b.len())).min(self.b.len());
+                let mut radius = self.with_prec(&self.delta * &self.r[start][start]);
+                let mut coefficients = vec![Integer::from(0); end - start];
+                let mut best = None;
+                let mut nodes = 0;
+                self.enumerate_block(
+                    start,
+                    end - 1,
+                    &mut coefficients,
+                    Float::from(0),
+                    &mut radius,
+                    &mut best,
+                    &mut nodes,
+                );
+                if let Some(coefficients) = best {
+                    self.insert_block_vector(start, coefficients);
+                    self.reduce();
+                    gso_valid = false;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+    }
+
+    /// Exhaustive Schnorr–Euchner enumeration in the projected block. The
+    /// timeout may interrupt it, so a bounded run is a search, not a certificate.
+    fn enumerate_block(
+        &self,
+        start: usize,
+        level: usize,
+        coefficients: &mut [Integer],
+        partial: Float,
+        radius: &mut Float,
+        best: &mut Option<Vec<Integer>>,
+        nodes: &mut usize,
+    ) {
+        if self.check_time_out() {
+            return;
+        }
+        let local = level - start;
+        let mut center = Float::from(0);
+        for j in level + 1..start + coefficients.len() {
+            center -= self.int_to_float(&coefficients[j - start]) * &self.mu[j][level];
+        }
+        let nearest: Integer = center.clone().rounding_into(RoundingMode::Nearest).0;
+        // Visit the closest integer, then both sides at increasing distance.
+        let mut offset = Integer::from(0);
+        loop {
+            let mut inside = false;
+            for sign in [1i32, -1] {
+                if sign == -1 && offset == 0 {
+                    continue;
+                }
+                let x = &nearest + &offset * Integer::from(sign);
+                let distance = self.int_to_float(&x) - &center;
+                let norm = self.with_prec(&partial + &distance * &distance * &self.r[level][level]);
+                *nodes += 1;
+                if *nodes % 256 == 0 && self.check_time_out() {
+                    return;
+                }
+                if norm < *radius {
+                    inside = true;
+                    coefficients[local] = x;
+                    if level > start {
+                        self.enumerate_block(
+                            start,
+                            level - 1,
+                            coefficients,
+                            norm,
+                            radius,
+                            best,
+                            nodes,
+                        );
+                    } else if coefficients.iter().any(|x| x != &Integer::from(0)) {
+                        *radius = norm;
+                        *best = Some(coefficients.to_vec());
+                    }
+                }
+            }
+            if !inside {
+                break;
+            }
+            offset += Integer::from(1);
+        }
+    }
+
+    /// Euclidean column operations on the coefficients, with inverse integer
+    /// row operations on the basis. Every step is unimodular (add or swap),
+    /// so the lattice is preserved even if enumeration was interrupted.
+    fn insert_block_vector(&mut self, start: usize, mut coefficients: Vec<Integer>) {
+        for j in 1..coefficients.len() {
+            while coefficients[j] != 0 {
+                let q = &coefficients[0] / &coefficients[j];
+                let cj = coefficients[j].clone();
+                coefficients[0] -= &q * cj;
+                let pivot = self.b[start].clone();
+                for (value, pivot) in self.b[start + j].iter_mut().zip(pivot) {
+                    *value += &q * pivot;
+                }
+                self.b.swap(start, start + j);
+                coefficients.swap(0, j);
+            }
+        }
+        if coefficients[0] < 0 {
+            for value in &mut self.b[start] {
+                *value = -value.clone();
+            }
+        }
+    }
+
     fn row_max(&self, i: usize) -> Integer {
         self.b[i][self.n_..]
             .iter()
@@ -188,7 +348,7 @@ impl L2 {
         true
     }
     fn runtime(&self) -> f64 {
-        Date::now() / 1000. - self.start_time
+        now() - self.start_time
     }
     fn check_time_out(&self) -> bool {
         self.runtime() > self.timeout
@@ -206,6 +366,25 @@ impl L2 {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct BkzOptions {
+    /// 2 disables BKZ and retains the original L²-only search.
+    pub block_size: usize,
+    /// A finite tour budget; stopping early does not certify BKZ reduction.
+    pub max_tours: usize,
+}
+
+// BKZ is opt-in: stronger reduction can cost more without finding a collision.
+impl Default for BkzOptions {
+    fn default() -> Self {
+        Self {
+            block_size: 2,
+            max_tours: 4,
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct Parameters {
     pub length: usize,
     pub modulo: Vec<Integer>,
@@ -258,6 +437,10 @@ fn check(a: &String, b: &String, modulo: Vec<Integer>, base: Vec<Integer>) -> bo
 }
 
 pub fn anti_palindrome_hash(parameters: Parameters) -> AntiResult {
+    anti_palindrome_hash_with_bkz(parameters, BkzOptions::default())
+}
+
+fn anti_palindrome_hash_with_bkz(parameters: Parameters, options: BkzOptions) -> AntiResult {
     let Parameters {
         length,
         modulo,
@@ -292,7 +475,7 @@ pub fn anti_palindrome_hash(parameters: Parameters) -> AntiResult {
         b[i][n + i] = Integer::from(1);
     }
     let mut l2 = L2::new(b, delta, eta, precision, sigma, timeout, n);
-    l2.reduce();
+    l2.reduce_bkz(options);
     let mut best = None;
     let mut best_vec = None;
     for row in &l2.b {
@@ -340,8 +523,14 @@ pub fn anti_palindrome_hash(parameters: Parameters) -> AntiResult {
 }
 
 pub fn anti_hash(parameters: Parameters) -> AntiResult {
+    anti_hash_with_bkz(parameters, BkzOptions::default())
+}
+
+/// Run L² first, then bounded projected-block BKZ if no collision was found.
+/// Both stages share `parameters.timeout`; failure is not a nonexistence proof.
+pub fn anti_hash_with_bkz(parameters: Parameters, options: BkzOptions) -> AntiResult {
     if parameters.palindrome {
-        return anti_palindrome_hash(parameters);
+        return anti_palindrome_hash_with_bkz(parameters, options);
     }
     let Parameters {
         length,
@@ -368,7 +557,7 @@ pub fn anti_hash(parameters: Parameters) -> AntiResult {
         b[i][n + i] = Integer::from(1);
     }
     let mut l2 = L2::new(b, delta, eta, precision, sigma, timeout, n);
-    l2.reduce();
+    l2.reduce_bkz(options);
     let mut best = None;
     let mut best_vec = None;
     for row in &l2.b {
@@ -408,4 +597,307 @@ pub fn anti_hash(parameters: Parameters) -> AntiResult {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+
+    fn reducer(b: Vec<Vec<i32>>) -> L2 {
+        L2::new(
+            b.into_iter()
+                .map(|r| r.into_iter().map(Integer::from).collect())
+                .collect(),
+            Float::from(0.99),
+            Float::from(0.51),
+            40,
+            0,
+            30.,
+            0,
+        )
+    }
+
+    fn determinant(b: &[Vec<Integer>]) -> Integer {
+        if b.len() == 1 {
+            return b[0][0].clone();
+        }
+        let mut result = Integer::from(0);
+        for j in 0..b.len() {
+            let minor: Vec<Vec<Integer>> = b[1..]
+                .iter()
+                .map(|r| {
+                    r.iter()
+                        .enumerate()
+                        .filter(|(k, _)| *k != j)
+                        .map(|(_, x)| x.clone())
+                        .collect()
+                })
+                .collect();
+            let term = &b[0][j] * determinant(&minor);
+            if j % 2 == 0 {
+                result += term;
+            } else {
+                result -= term;
+            }
+        }
+        result
+    }
+
+    #[test]
+    fn bkz_improves_a_l2_reduced_basis() {
+        let mut l = reducer(vec![
+            vec![1, 11, -18, -15, -8],
+            vec![19, -5, 17, 13, -11],
+            vec![8, 13, -16, 6, -13],
+            vec![15, 14, 0, 11, -10],
+            vec![-19, -3, 18, -9, -17],
+        ]);
+        let det = determinant(&l.b).abs();
+        l.reduce();
+        assert_eq!(dot(&l.b[0], &l.b[0]), 340);
+        l.reduce_bkz(BkzOptions {
+            block_size: 5,
+            max_tours: 4,
+        });
+        assert_eq!(dot(&l.b[0], &l.b[0]), 337);
+        assert_eq!(determinant(&l.b).abs(), det);
+    }
+
+    fn hash_parameters(pairs: usize, length: usize, seed: u64, palindrome: bool) -> Parameters {
+        Parameters {
+            length,
+            modulo: [998244353u64, 1000000007, 1000000009][..pairs]
+                .iter()
+                .copied()
+                .map(Integer::from)
+                .collect(),
+            base: [233 + seed * 2, 911382323 - seed * 4, 972663749 - seed * 6][..pairs]
+                .iter()
+                .copied()
+                .map(Integer::from)
+                .collect(),
+            lambda: Integer::from(100000),
+            delta: Float::from(0.99),
+            eta: Float::from(0.51),
+            precision: 40,
+            palindrome,
+            sigma: 26,
+            timeout: 10.,
+        }
+    }
+
+    fn verify_collision(a: &str, b: &str, p: &Parameters) {
+        assert_ne!(a, b);
+        assert_eq!(a.len(), p.length);
+        assert_eq!(b.len(), p.length);
+        assert!(a
+            .bytes()
+            .chain(b.bytes())
+            .all(|c| (b'a'..b'a' + p.sigma as u8).contains(&c)));
+        if p.palindrome {
+            assert_eq!(a.chars().rev().collect::<String>(), b);
+        }
+        for (m, q) in p.modulo.iter().zip(&p.base) {
+            let hash = |s: &str| {
+                s.bytes()
+                    .rev()
+                    .fold(Integer::from(0), |h, c| (h * q + Integer::from(c)) % m)
+            };
+            assert_eq!(hash(a), hash(b));
+        }
+    }
+
+    #[test]
+    fn bkz_finds_collisions_missed_by_l2() {
+        for (pairs, length, seed) in [(2, 11, 39), (3, 16, 26)] {
+            let p = hash_parameters(pairs, length, seed, false);
+            assert!(matches!(
+                anti_hash_with_bkz(
+                    p.clone(),
+                    BkzOptions {
+                        block_size: 2,
+                        max_tours: 4
+                    }
+                ),
+                AntiResult::NotFound(..)
+            ));
+            match anti_hash_with_bkz(
+                p.clone(),
+                BkzOptions {
+                    block_size: 20,
+                    max_tours: 4,
+                },
+            ) {
+                AntiResult::Ok(_, a, b) => verify_collision(&a, &b, &p),
+                _ => panic!("BKZ did not find regression collision"),
+            }
+        }
+    }
+
+    #[test]
+    fn bkz_preserves_reverse_constraint() {
+        let p = hash_parameters(3, 32, 31, true);
+        assert!(matches!(
+            anti_hash_with_bkz(
+                p.clone(),
+                BkzOptions {
+                    block_size: 2,
+                    max_tours: 4
+                }
+            ),
+            AntiResult::NotFound(..)
+        ));
+        match anti_hash_with_bkz(
+            p.clone(),
+            BkzOptions {
+                block_size: 20,
+                max_tours: 4,
+            },
+        ) {
+            AntiResult::Ok(_, a, b) => verify_collision(&a, &b, &p),
+            _ => panic!("no reverse collision"),
+        }
+    }
+
+    #[test]
+    fn large_norms_do_not_require_f64_conversion() {
+        let mut l = reducer(vec![vec![4, 1, 0], vec![1, 3, 1], vec![2, -1, 2]]);
+        let scale: Integer = format!("1{}", "0".repeat(400)).parse().unwrap();
+        for row in &mut l.b {
+            for value in row {
+                *value *= &scale;
+            }
+        }
+        assert!(l.refresh_gso());
+        let mut radius = l.int_to_float(&dot(&l.b[0], &l.b[0]));
+        let mut best = None;
+        l.enumerate_block(
+            0,
+            2,
+            &mut vec![Integer::from(0); 3],
+            Float::from(0),
+            &mut radius,
+            &mut best,
+            &mut 0,
+        );
+        let c = best.unwrap();
+        let v: Vec<Integer> = (0..3)
+            .map(|j| (0..3).map(|i| &c[i] * &l.b[i][j]).sum())
+            .collect();
+        // Independently brute-force the unscaled squared norm.
+        let mut exact = i32::MAX;
+        for a in -8..=8 {
+            for b in -8..=8 {
+                for c in -8..=8 {
+                    if a == 0 && b == 0 && c == 0 {
+                        continue;
+                    }
+                    let v = [4 * a + b + 2 * c, a + 3 * b - c, b + 2 * c];
+                    exact = exact.min(v.iter().map(|x| x * x).sum());
+                }
+            }
+        }
+        assert_eq!(dot(&v, &v), Integer::from(exact) * &scale * &scale);
+    }
+
+    #[test]
+    fn exhausted_deadline_stops_enumeration() {
+        let mut l = reducer(vec![vec![4, 1], vec![1, 3]]);
+        assert!(l.refresh_gso());
+        l.timeout = -1.;
+        let mut best = None;
+        let mut nodes = 0;
+        l.enumerate_block(
+            0,
+            1,
+            &mut vec![Integer::from(0); 2],
+            Float::from(0),
+            &mut Float::from(100),
+            &mut best,
+            &mut nodes,
+        );
+        assert!(best.is_none());
+        assert_eq!(nodes, 0);
+    }
+
+    #[test]
+    fn insertion_preserves_lattice_and_inserts_combination() {
+        for c in [
+            vec![2, 3, 5],
+            vec![0, -1, 2],
+            vec![-3, 2, 0],
+            vec![0, 0, -1],
+        ] {
+            let mut l = reducer(vec![vec![7, 2, 1], vec![3, 5, 0], vec![1, 1, 4]]);
+            let det = determinant(&l.b).abs();
+            let expected: Vec<Integer> = (0..3)
+                .map(|j| (0..3).map(|i| Integer::from(c[i]) * &l.b[i][j]).sum())
+                .collect();
+            l.insert_block_vector(0, c.into_iter().map(Integer::from).collect());
+            assert_eq!(determinant(&l.b).abs(), det);
+            assert_eq!(l.b[0], expected);
+        }
+    }
+
+    #[test]
+    fn nonprimitive_insertion_keeps_the_entire_lattice() {
+        let mut l = reducer(vec![vec![1, 0, 0], vec![0, 1, 0], vec![0, 0, 1]]);
+        l.insert_block_vector(0, vec![2, 4, 6].into_iter().map(Integer::from).collect());
+        assert_eq!(
+            l.b[0],
+            vec![1, 2, 3]
+                .into_iter()
+                .map(Integer::from)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(determinant(&l.b).abs(), 1);
+    }
+
+    #[test]
+    fn projected_enumeration_agrees_with_exhaustive_search() {
+        let mut l = reducer(vec![vec![4, 1, 0], vec![1, 3, 1], vec![2, -1, 2]]);
+        assert!(l.refresh_gso());
+        for start in 0..2 {
+            let mut radius = Float::from(1000);
+            let mut best = None;
+            l.enumerate_block(
+                start,
+                2,
+                &mut vec![Integer::from(0); 3 - start],
+                Float::from(0),
+                &mut radius,
+                &mut best,
+                &mut 0,
+            );
+            let mut exact = f64::INFINITY;
+            // Independent projection onto the orthogonal complement of row 0.
+            for a in -8..=8 {
+                for b in -8..=8 {
+                    for c in -8..=8 {
+                        if (start == 1 && a != 0) || (a == 0 && b == 0 && c == 0) {
+                            continue;
+                        }
+                        let v: Vec<f64> = (0..3)
+                            .map(|j| {
+                                [a, b, c]
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(i, x)| {
+                                        *x as f64 * i32::try_from(&l.b[i][j]).unwrap() as f64
+                                    })
+                                    .sum()
+                            })
+                            .collect();
+                        let mut norm: f64 = v.iter().map(|x| x * x).sum();
+                        if start == 1 {
+                            let b0 = [4., 1., 0.];
+                            let dot: f64 = v.iter().zip(b0).map(|(x, y)| x * y).sum();
+                            norm -= dot * dot / 17.;
+                        }
+                        exact = exact.min(norm);
+                    }
+                }
+            }
+            let actual: f64 = radius.rounding_into(RoundingMode::Nearest).0;
+            assert!((actual - exact).abs() < 1e-10, "{actual} != {exact}");
+            assert!(best.is_some());
+        }
+    }
+}
